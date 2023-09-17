@@ -2,29 +2,27 @@
 #include <vector>
 #include <random>
 #include <Eigen/Dense>
+#include <unsupported/Eigen/CXX11/Tensor>
+
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
+#include "helpers.h"
+#include "gpt.h"
 
-using namespace Eigen;
 
-
-int N = 5;
-int nSpecies = 3;
 const int WINDOW_WIDTH = 800;
 const int WINDOW_HEIGHT = 800;
-int wDead = 11;
-int wRepl = 1;
-int wBoost = 100;
-
-
+const int wDead = 11;
+const int wRepl = 1;
+const int wBoost = 100;
 const float pDeath = 0.2;
 
-std::vector<MatrixXi> lattice;
-MatrixXi latticeFlat;
 
-std::vector<MatrixXi> claims;
-std::vector<MatrixXi> filtersNWSE;
-std::vector<MatrixXi> filtersBoost;
+const int N = 50;
+Eigen::Tensor<int, 2> lattice(0, N, N);
+
+const int nSpecies = 5;
+
 
 
 void controls(GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -65,7 +63,6 @@ GLFWwindow* initWindow(const int resX, const int resY)
     glCullFace(GL_BACK);
     return window;
 }
-
 void DrawMatrix() {
     const float cellWidth = static_cast<float>(WINDOW_WIDTH) / N;
     const float cellHeight = static_cast<float>(WINDOW_HEIGHT) / N;
@@ -74,7 +71,7 @@ void DrawMatrix() {
 
     for (int i = 0; i < N; ++i) {
         for (int j = 0; j < N; ++j) {
-            int species = latticeFlat(i, j);
+            int species = lattice(i, j);
             // Set color based on species
             switch (species) {
                 case 0: glColor3f(0.1f, 0.1f, 0.1f); break; // Dead
@@ -96,177 +93,100 @@ void DrawMatrix() {
 }
 
 
+Eigen::Tensor<int, 2> fillNewLattice(const Eigen::Tensor<int, 2>& lattice, const std::vector<Eigen::Tensor<int, 2>>& neighborsMatrix) {
 
+    Eigen::Tensor<int, 3> cumClaims(N, N, nSpecies + 1);
+    Eigen::Tensor<int, 3> claims(N, N, nSpecies + 1);
 
-MatrixXi flattenLattice(const std::vector<MatrixXi>& lat) {
-    MatrixXi flat(N, N);
-    flat.setZero();
-    for (int i = 0; i <= nSpecies; ++i) {
-        flat += i * lat[i];
-    }
-    return flat;
-}
-std::vector<MatrixXi> unflattenLattice(const MatrixXi& flatLattice) {
-    std::vector<MatrixXi> outLattice(nSpecies + 1, MatrixXi::Zero(N, N));
-    for (int i = 0; i < N; ++i) {
-        for (int j = 0; j < N; ++j) {
-            outLattice[flatLattice(i, j)](i, j) = 1;
-        }
-    }
-    return outLattice;
-}
-void initFilters() {
-    // Filters
-    filtersNWSE.push_back((MatrixXi(3, 3) << 0, 0, 0, 0, 0, 0, 0, 1, 0).finished());
-    filtersNWSE.push_back((MatrixXi(3, 3) << 0, 0, 0, 1, 0, 0, 0, 0, 0).finished());
-    filtersNWSE.push_back((MatrixXi(3, 3) << 0, 1, 0, 0, 0, 0, 0, 0, 0).finished());
-    filtersNWSE.push_back((MatrixXi(3, 3) << 0, 0, 0, 0, 0, 1, 0, 0, 0).finished());
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<> dis(0.0, 1.0);
 
-    // Boost filters
-    filtersBoost.push_back((MatrixXi(3, 3) << 1, 0, 1, 1, 0, 1, 0, 0, 0).finished());
-    filtersBoost.push_back((MatrixXi(3, 3) << 1, 1, 0, 0, 0, 0, 1, 1, 0).finished());
-    filtersBoost.push_back((MatrixXi(3, 3) << 0, 0, 0, 1, 0, 1, 1, 0, 1).finished());
-    filtersBoost.push_back((MatrixXi(3, 3) << 0, 1, 1, 0, 0, 0, 0, 1, 1).finished());
+    for (int replicationDirectionId = 0; replicationDirectionId < 4; ++replicationDirectionId) {
+        Eigen::Tensor<int, 2> replicatorSpecies = neighborsMatrix[replicationDirectionId];
+        Eigen::Tensor<int, 2> boosterSpeciesRequired = replicatorSpecies + 1;
 
-}
-MatrixXi convolve2D(const MatrixXi& input, const MatrixXi& kernel) {
-    int rows = input.rows();
-    int cols = input.cols();
-
-    int kRows = kernel.rows();
-    int kCols = kernel.cols();
-
-    int outRows = rows;
-    int outCols = cols;
-
-    MatrixXi output = MatrixXi::Zero(outRows, outCols);
-
-    // Iterate over the input image
-    for (int i = 0; i < outRows; ++i) {
-        for (int j = 0; j < outCols; ++j) {
-
-            // Iterate over the kernel
-            for (int ki = 0; ki < kRows; ++ki) {
-                for (int kj = 0; kj < kCols; ++kj) {
-
-                    int ii = i + ki - kRows / 2;
-                    int jj = j + kj - kCols / 2;
-
-                    // Wrap around logic for boundary
-                    ii = (ii + rows) % rows;
-                    jj = (jj + cols) % cols;
-
-                    output(i, j) += input(ii, jj) * kernel(ki, kj);
+        for (int i = 0; i < boosterSpeciesRequired.dimensions()[0]; i++) {
+            for (int j = 0; j < boosterSpeciesRequired.dimensions()[1]; j++) {
+                if (boosterSpeciesRequired(i, j) > nSpecies) {
+                    boosterSpeciesRequired(i, j) = 1;
                 }
             }
         }
-    }
-    return output;
-}
-void initLattice() {
-    lattice.clear();
-    for (int i = 0; i < nSpecies + 1; ++i) {
-        lattice.push_back(MatrixXi::Zero(N, N));
-        claims.push_back(MatrixXi::Zero(N, N));
-    }
+        claims += onehotMult(replicatorSpecies, nSpecies, wRepl);
+        // Eigen::TensorSum(claims, onehotMult(replicatorSpecies, nSpecies, wRepl));
+        
+        
 
-    // Initial random assignment
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> distrib(1, nSpecies);  // For species including dead
-
-    for (int i = 0; i < N; ++i) {
-        for (int j = 0; j < N; ++j) {
-            int randVal = distrib(gen);
-            lattice[randVal](i, j) = 1;
-        }
-    }
-/*
-    for (int k = 0; k < lattice.size(); k++) {
-        std::cout << "species" << k << std::endl;
-        for (int i = 0; i < N; i++) {
-            for (int j = 0; j < N; j++) {
-                std::cout << lattice[k](i, j) << " ";
-            }
-            std::cout << std::endl;
-        }
-        std::cout << std::endl;
-    }
-    */
-    latticeFlat = flattenLattice(lattice);
-}
-void zeroClaims() {
-    for (int i = 0; i < nSpecies + 1; i++) {
-        MatrixXi tmp(N, N);
-        tmp.setZero();
-        claims[i] = tmp;
-    }
-}
-
-void runSimulationStep() {
-    latticeFlat = flattenLattice(lattice);
-    zeroClaims();
-    claims[0] = MatrixXi::Constant(N, N, wDead); // Initialize dead cells with their weights
-
-
-    // compute claims
-    for (int s = 1; s <= nSpecies; s++) {
-        int sBoost = (s == 1) ? nSpecies : s - 1;
-
-        for (int f = 0; f < filtersNWSE.size(); f++) {
-            MatrixXi tmpClaim = convolve2D(lattice[s], filtersNWSE[f]);
-            claims[s] += wRepl * tmpClaim;
-
-            MatrixXi allBoosts = convolve2D(lattice[sBoost], filtersBoost[f]);
-            claims[s] += wBoost * allBoosts.cwiseProduct(tmpClaim);
+        for (int boostDirectionId : boostLogic[replicationDirectionId]) {
+            Eigen::Tensor<int, 2> boosterSpecies = neighborsMatrix[boostDirectionId];
+            Eigen::Tensor<int, 2> correctBoosterSpecies = boosterSpecies * (boosterSpecies == boosterSpeciesRequired);
+            claims += onehotMult(replicatorSpecies, nSpecies, wBoost);
         }
     }
 
-    // compute cumulative claims
-    std::vector<MatrixXi> cumClaims(nSpecies + 1);
+    // Normalize claims and pick new cells
+    Eigen::Tensor<float, 3> cumProb(N, N, nSpecies);
+    
+    cumProb = claims.cumsum(2);
+    cumProb = cumProb / claims.sum(2);
+    MatrixXd rr = MatrixXd::Random(N, N).array() * 0.5 + 0.5;
 
-    cumClaims[0] = claims[0];
-    for (int s = 1; s <= nSpecies; s++) {
-        cumClaims[s] = cumClaims[s - 1] + claims[s];
-    }
+    Eigen::Tensor<int, 2> newLattice(0, N, N);
 
-    // convert to probabilities
-    std::vector<MatrixXf> cumClaimsProb(nSpecies + 1);
-    MatrixXi totalClaims = cumClaims[nSpecies]; // total sum
-    for (int s = 1; s <= nSpecies; s++) {
-        cumClaimsProb[s] = (cumClaims[s].array().cast<float>() / totalClaims.array().cast<float>()).matrix();
-    }
-
-    // select replicant by the cumulative prob
-    MatrixXi newLatticeFlat(N, N);
-    MatrixXf rand = MatrixXf::Random(N, N);
+    // find max along the last (i.e. species) axis
     for (int i = 0; i < N; i++) {
         for (int j = 0; j < N; j++) {
-            float r = (rand(i, j) + 1) / 2;  // Scale to [0,1]
-            int s;
-            for (s = 1; s <= nSpecies; s++) {
-                if (r <= cumClaims[s](i, j)) {
+            
+            for (int k = 1; k < nSpecies; k++) {
+                if (rr(i, j) > cumProb(i, j, k)) {
+                    newLattice(i, j) = k;
                     break;
                 }
             }
-            newLatticeFlat(i, j) = s;
+
+            
         }
     }
 
-    // 5. Combine claims and survival/death logic
-    rand = MatrixXf::Random(N, N);
+    return newLattice;
+}
+
+
+void runSimulationStep() {
+
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<> dis(0.0, 1.0);
+
+    std::vector<Eigen::Tensor<int, 2>> neighbors = computeNeighbours(lattice);
+
+    Eigen::Tensor<int, 2> randomMatrix(N, N);
+    randomMatrix.setRandom();
+    randomMatrix = randomMatrix * 0.5 + 0.5; // Values between [0,1]
+    Eigen::Tensor<int, 2> survived_mask = randomMatrix > pDeath;
+    Eigen::Tensor<int, 2> died_mask = survived_mask == 0;
+
+    lattice = lattice * survived_mask;
+
+
+    Eigen::Tensor<int, 2> replication_mask(N, N);
+    Eigen::array<int, 2> dims({ 0, 1 });
+    replication_mask = lattice.convolve(replMatrix, dims);
+    replication_mask.setConstant(0);
+    // Fill replication_mask here, possibly with convolution or another approach.
+
+    Eigen::Tensor<int, 2> replication_spots = (lattice == 0) * replication_mask;
+
+    Eigen::Tensor<int, 2> new_lattice = fillNewLattice(lattice, neighbors);
     for (int i = 0; i < N; i++) {
         for (int j = 0; j < N; j++) {
-            if (latticeFlat(i, j) != 0 && (rand(i, j) + 1) / 2 < pDeath) {
-                newLatticeFlat(i, j) = 0;  // A full cell dies
-            }
-            if (latticeFlat(i, j) != 0 && (rand(i, j) + 1) / 2 >= pDeath) {
-                newLatticeFlat(i, j) = latticeFlat(i, j);  // A full cell survives
+            if (replication_spots(i, j) == 1) {
+                lattice(i, j) = new_lattice(i, j);
             }
         }
     }
-
-    lattice = unflattenLattice(newLatticeFlat);
 }
 
 void display(GLFWwindow* window)
@@ -300,8 +220,9 @@ void display(GLFWwindow* window)
 }
 
 int main() {
-    initLattice();
-    initFilters();
+    replMatrix.setValues({ {0, 1, 0}, {1, 0, 1}, {0, 1, 0} });
+
+    lattice = initLattice(lattice, nSpecies);
 
     GLFWwindow* window = initWindow(WINDOW_WIDTH, WINDOW_HEIGHT);
 
