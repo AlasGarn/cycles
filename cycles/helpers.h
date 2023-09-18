@@ -20,14 +20,15 @@ const std::vector<std::vector<int>> boostLogic = {
 };
 
 
-std::vector<Eigen::Tensor<int, 2>> roll(const Eigen::Tensor<int, 2>& mat, int shiftX, int shiftY) {}
-Eigen::Tensor<int, 3> onehotMult(const Eigen::Tensor<int, 2>& mat, int nSpecies, int a) {}
+std::vector<Eigen::Tensor<int, 2>> roll(const Eigen::Tensor<int, 2>& mat, int shiftX, int shiftY);
 
-Eigen::Tensor<int, 2> flattenClaims(Eigen::Tensor<int, 3>& claims, int nSpecies, int N) {}
+Eigen::Tensor<int, 3> onehotMult(const Eigen::Tensor<int, 2>& mat, int nSpecies, int a);
+
+Eigen::Tensor<int, 2> flattenClaims(Eigen::Tensor<int, 3>& claims, int nSpecies, int N);
 
 
-Eigen::Tensor<int, 2> initLattice(Eigen::Tensor<int, 2>& lat, int nSpecies) {}
+Eigen::Tensor<int, 2> initLattice(Eigen::Tensor<int, 2>& lat, int nSpecies);
 
-void zeroClaims(Eigen::Tensor<int, 3>& claims, int nSpecies) {}
+//void zeroClaims(Eigen::Tensor<int, 3>& claims, int nSpecies);
 
-std::vector<Eigen::Tensor<int, 2>> computeNeighbours(const Eigen::Tensor<int, 2>& lattice) {}
+std::vector<Eigen::Tensor<int, 2>> computeNeighbours(const Eigen::Tensor<int, 2>& lattice);

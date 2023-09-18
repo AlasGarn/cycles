@@ -84,18 +84,7 @@ Eigen::Tensor<int, 2> initLattice(const Eigen::Tensor<int, 2>& lat, int nSpecies
 
     return initDistribution;
 }
-/*
-void zeroClaims(Eigen::Tensor<int, 3> &claims, int nSpecies) {
-    Eigen::Tensor<int, 2> lat = claims[0];
-    int rows = lat.rows();
-    int cols = lat.cols();
 
-    for (int i = 0; i < nSpecies + 1; i++) {
-   
-        claims[i] = MatrixXi::Zero(rows, cols);
-    }
-}
-*/
 
 std::vector<Eigen::Tensor<int, 2>> computeNeighbours(const Eigen::Tensor<int, 2>& lattice) {
     Eigen::Tensor<int, 2> up = roll(lattice, -1, 0);
@@ -111,5 +100,16 @@ std::vector<Eigen::Tensor<int, 2>> computeNeighbours(const Eigen::Tensor<int, 2>
     return { up, left, down, right, up_left, up_right, down_left, down_right };
 }
 
+/*
+void zeroClaims(Eigen::Tensor<int, 3> &claims, int nSpecies) {
+    Eigen::Tensor<int, 2> lat = claims[0];
+    int rows = lat.rows();
+    int cols = lat.cols();
 
-int main() { return 0; }
+    for (int i = 0; i < nSpecies + 1; i++) {
+
+        claims[i] = MatrixXi::Zero(rows, cols);
+    }
+}
+*/
+//int main() { return 0; }

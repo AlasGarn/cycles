@@ -19,7 +19,7 @@ const float pDeath = 0.2;
 
 
 const int N = 50;
-Eigen::Tensor<int, 2> lattice(0, N, N);
+Eigen::Tensor<int, 2> lattice(N, N);
 
 const int nSpecies = 5;
 

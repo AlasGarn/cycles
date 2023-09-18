@@ -19,12 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="gpt.cpp" />
-    <ClCompile Include="helpers.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="gpt.h" />
-    <ClInclude Include="helpers.h" />
+    <ClCompile Include="test2.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
