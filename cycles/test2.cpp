@@ -6,6 +6,7 @@
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
+#include <glm/gtc/matrix_transform.hpp> // glm::translate, glm::rotate, glm::scale, glm::perspective
 //#include "helpers.h"
 #include "gpt.h"
 
@@ -14,21 +15,21 @@
 
 const int WINDOW_WIDTH = 800;
 const int WINDOW_HEIGHT = 800;
-const double fpsLimit = 1.0 / 20.0;
+const double fpsLimit = 1.0 / 60.0;
 double lastUpdateTime = 0;  // number of seconds since the last loop
 double lastFrameTime = 0;   // number of seconds since the last frame
 
 
 
-const int wDead = 11;
-const int wRepl = 1;
-const int wBoost = 100;
+const int wDead = 37;
+const int wRepl = 5;
+const int wBoost = 400;
 const float pDeath = 0.2;
 
 
 
 const int DEBUG = 0;
-const int N = 300;
+const int N = 250;
 const int nSpecies = 9;
 // if (DEBUG == 1) {
 
@@ -36,7 +37,15 @@ const int nSpecies = 9;
 //     const int N = 350;
 //     const int nSpecies = 9;
 // }
-
+int pbc(int x, int N){
+    if (x < 0) {
+        return int(N - x - 1);
+    }
+    if (x >= N) {
+        return int(x - N);
+    }
+    return int(x);
+}
 void controls(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     if (action == GLFW_PRESS)
@@ -50,7 +59,7 @@ GLFWwindow* initWindow(const int resX, const int resY)
         fprintf(stderr, "Failed to initialize GLFW\n");
         return NULL;
     }
-    glfwWindowHint(GLFW_SAMPLES, 1); // 1x antialiasing
+    glfwWindowHint(GLFW_SAMPLES, 4); // 1x antialiasing
 
     // Open a window and create its OpenGL context
     GLFWwindow* window = glfwCreateWindow(resX, resY, "TEST", NULL, NULL);
@@ -70,9 +79,13 @@ GLFWwindow* initWindow(const int resX, const int resY)
     printf("OpenGL version supported %s\n", glGetString(GL_VERSION));
 
     glEnable(GL_DEPTH_TEST); // Depth Testing
+   // glEnable(GL_LIGHTING);
+   // glEnable(GL_LIGHT0);
+    glShadeModel(GL_SMOOTH);
     glDepthFunc(GL_LEQUAL);
     glDisable(GL_CULL_FACE);
     glCullFace(GL_BACK);
+
     return window;
 }
 void DrawMatrix(Eigen::Tensor<int, 2>& lattice) {
@@ -82,32 +95,62 @@ void DrawMatrix(Eigen::Tensor<int, 2>& lattice) {
 
     glClear(GL_COLOR_BUFFER_BIT);
 
-    for (int i = 0; i < N; ++i) {
-        for (int j = 0; j < N; ++j) {
+    for (int i = 1; i < N-1; ++i) {
+        for (int j = 1; j < N-1; ++j) {
             int species = lattice(i, j);
             // Set color based on species
             switch (species) {
-                case 0: glColor3f(0.1f, 0.1f, 0.1f); break; // Dead
-                case 1: glColor3f(0.0f, 0.3f, 1.0f); break;
-                case 2: glColor3f(0.0f, 0.6137254901960785f, 1.0f); break;
-                case 3: glColor3f(0.022137887413029723f, 0.9274509803921569f, 0.9456040480708413f); break;
-                case 4: glColor3f(0.26249209361163817f, 1.0f, 0.7052498418722328f); break;
-                case 5: glColor3f(0.5154965211891207f, 1.0f, 0.4522454142947502f); break;
-                case 6: glColor3f(0.7685009487666034f, 1.0f, 0.19924098671726753f); break;
-                case 7: glColor3f(1.0f, 0.9012345679012348f, 0.0f); break;
-                case 8: glColor3f(1.0f, 0.6107480029048659f, 0.0f); break;
-                case 9: glColor3f(1.0f, 0.3202614379084969f, 0.0f); break;
-                case 10: glColor3f(0.9456327985739753f, 0.029774872912127992f, 0.0f); break;
+                case 0: glColor4f(0.1f, 0.1f, 0.1f, 0.1f); break; // Dead
+                case 1: glColor4f(0.0f, 0.0f, 0.5f, 0.0f); break;
+                case 2: glColor4f(0.0f, 0.00196078431372549f, 1.0f, 0.125f); break;
+                case 3: glColor4f(0.0f, 0.503921568627451f, 1.0f, 0.25f); break;
+                case 4: glColor4f(0.08538899430740036f, 1.0f, 0.8823529411764706f, 0.375f); break;
+                case 5: glColor4f(0.4901960784313725f, 1.0f, 0.4775458570524984f, 0.5f); break;
+                case 6: glColor4f(0.8950031625553446f, 1.0f, 0.07273877292852626f, 0.625f); break;
+                case 7: glColor4f(1.0f, 0.5816993464052289f, 0.0f, 0.75f); break;
+                case 8: glColor4f(1.0f, 0.11692084241103862f, 0.0f, 0.875f); break;
+                case 9: glColor4f(0.5f, 0.0f, 0.0f, 1.0f); break;
 
-                default: glColor3f(1.0f, 1.0f, 1.0f);      // Others
+                default: glColor4f(1.0f, 1.0f, 1.0f, 1.0f);      // Others
             }
 
+
             float x = j * cellWidth, y = i * cellHeight;
+            /*  heightA = (height(x-1, y-1) + height(x-1, y) + height(x, y-1) + height(x, y))/4
+                heightB = (height(x-1, y) + height(x-1, y+1) + height(x, y) + height(x, y+1))/4
+                heightC = (height(x, y) + height(x, y+1) + height(x+1, y) + height(x+1, y+1))/4
+                heightD = (height(x, y-1) + height(x, y) + height(x+1, y-1) + height(x+1, y))/4
+*/
+            float zHeight = 0; // float(N) / 100;
+            float z1 = zHeight * ( 
+                lattice(i-1, j-1) +
+                lattice(i-1, j) +
+                lattice(i, j-1) + 
+                species
+                ) / 4;
+            float z2 = zHeight * (
+                lattice( i-1 ,  j ) +
+                lattice( i-1 ,  j+1 ) +
+                lattice( i ,  j+1 ) + 
+                species
+                ) / 4;
+            float z3 = zHeight * (
+                lattice( i ,  j+1 ) +
+                lattice( i+1 ,  j ) +
+                lattice( i+1 ,  j+1 ) + 
+                species
+                ) / 4;
+            float z4 = zHeight * (
+                lattice( i ,  j-1 ) +
+                lattice( i+1 ,  j-1 ) +
+                lattice( i+1 ,  j ) + 
+                species
+                ) / 4;
             glBegin(GL_QUADS);
-            glVertex2f(x, y);
-            glVertex2f(x + cellWidth, y);
-            glVertex2f(x + cellWidth, y + cellHeight);
-            glVertex2f(x, y + cellHeight);
+            glVertex3f(x, y, z1); // D-L
+            glVertex3f(x, y + cellHeight, z2); // U-L
+            glVertex3f(x + cellWidth, y + cellHeight, z3); // U-R
+            glVertex3f(x + cellWidth, y, z4); // D-R
             glEnd();
         }
     }
@@ -208,7 +251,7 @@ Eigen::Tensor<int, 2> initLattice(const Eigen::Tensor<int, 2>& lat, int nSpecies
             initDistribution(i, j) = speciesDis(gen);
         }
     }
-    int Rsq = N*N/4;
+    int Rsq = N*N/4 / 4;
     for (int i = 0; i < N; ++i) {
         for (int j = 0; j < N; ++j) {
             double distance = std::pow(i - N / 2.0, 2) + std::pow(j - N / 2.0, 2);
@@ -235,6 +278,8 @@ std::vector<Eigen::Tensor<int, 2>> computeNeighbours(const Eigen::Tensor<int, 2>
     return { up, left, down, right, up_left, up_right, down_left, down_right };
 }
 
+
+
 Eigen::Tensor<int, 2> fillNewLattice(const Eigen::Tensor<int, 2>& lattice, const std::vector<Eigen::Tensor<int, 2>>& neighborsMatrix) {
     const std::vector<std::vector<int>> boostLogic = {
         {{4,5,1,3}}, // up
@@ -250,6 +295,21 @@ Eigen::Tensor<int, 2> fillNewLattice(const Eigen::Tensor<int, 2>& lattice, const
     
     for (int replicationDirectionId = 0; replicationDirectionId < 4; ++replicationDirectionId) {
         Eigen::Tensor<int, 2> replicatorSpecies = neighborsMatrix[replicationDirectionId];
+
+
+        claims += onehotMult(replicatorSpecies, nSpecies, wRepl);
+        if (DEBUG == 1) {
+            std::cout << "claims after replication" << std::endl << claims << std::endl;
+        }
+
+
+        if (DEBUG == 1) {
+            std::cout << "replicator species " << std::endl << replicatorSpecies << std::endl;
+            std::cout << "claims" << std::endl << claims << std::endl;
+        }
+
+
+
         Eigen::Tensor<int, 2> boosterSpeciesRequired = replicatorSpecies + 1; // boost comes from another species
 
         // replace the non-existant nSpecies+1 booster with the correct 1
@@ -260,9 +320,6 @@ Eigen::Tensor<int, 2> fillNewLattice(const Eigen::Tensor<int, 2>& lattice, const
                 }
             }
         }
-
-        claims += onehotMult(replicatorSpecies, nSpecies, wRepl);
-
         for (int boostDirectionId : boostLogic[replicationDirectionId]) {
             Eigen::Tensor<int, 2> boosterSpecies = neighborsMatrix[boostDirectionId]; // potential boosters
             Eigen::Tensor<int, 2> whereAreCorrectBoosters = (boosterSpecies == boosterSpeciesRequired).cast<int>();
@@ -285,7 +342,7 @@ Eigen::Tensor<int, 2> fillNewLattice(const Eigen::Tensor<int, 2>& lattice, const
         }
     }
     if (DEBUG == 1) {
-        std::cout << "claims " << std::endl << claims << std::endl;
+        std::cout << "claims after boosts" << std::endl << claims << std::endl;
     }
     // Normalize claims and pick new cells
     Eigen::Tensor<int, 3> cumSum = claims.cumsum(2);
@@ -336,9 +393,8 @@ Eigen::Tensor<int, 2> fillNewLattice(const Eigen::Tensor<int, 2>& lattice, const
   
     for (int i = 0; i < N; i++) {
         for (int j = 0; j < N; j++) {
-
             for (int k = 0; k < nSpecies+1; k++) {
-                if (randomMatrix(i, j) < cumProb(i, j, k)) {
+                if (cumProb(i, j, k) > randomMatrix(i, j)) {
                     newLattice(i, j) = k;
                     break;
                 }
@@ -430,10 +486,51 @@ void display(GLFWwindow* window) {
     Eigen::Tensor<int, 2> replMatrix(3, 3);
     replMatrix.setValues({ {0, 1, 0}, {1, 0, 1}, {0, 1, 0} });
 
+    int filterSize = 7;
+    Eigen::Tensor<int, 2> avgFilter(filterSize, filterSize);
+    avgFilter.setConstant(1);
+    avgFilter.setValues(
+        {
+            {0,1,1,1,1,1,0},
+            {1,1,2,3,2,1,1},
+            {1,2,4,5,4,2,1},
+            {1,3,5,9,5,3,1},
+            {1,2,4,5,4,2,1},
+            {1,1,2,3,2,2,1},
+            {0,1,1,1,1,1,0},
+        }
+    );
+
+    // int filterSize = 3;
+    // Eigen::Tensor<int, 2> avgFilter(filterSize, filterSize);
+    // avgFilter.setValues(
+    //     {
+    //         {1,1,1},
+    //         {1,5,1},
+    //         {1,1,1},
+    //     }
+    // );
+
+    Eigen::Tensor<int, 0> filterSum = avgFilter.sum();
+
+
+
     Eigen::Tensor<int, 2> lattice(N, N);
+    Eigen::Tensor<int, 2> latticePrev(N, N);
+    Eigen::Tensor<int, 2> latticePrevPrev(N, N);
+
+    Eigen::Tensor<int, 2> latticeToDraw(N, N);
     lattice = initLattice(lattice, nSpecies);
+
+
+
     int step = 0;
     int maxSteps = 5;
+    int frame = 0;
+
+
+
+
     while (!glfwWindowShouldClose(window))
     {
         double now = glfwGetTime();
@@ -447,18 +544,41 @@ void display(GLFWwindow* window) {
         glClearColor(0.3, 0.3, 0.3, 1.0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glMatrixMode(GL_PROJECTION_MATRIX);
+        //glMatrixMode(GL_PROJECTION_MATRIX);
+        glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
-        gluPerspective(60, (double)WINDOW_WIDTH / (double)WINDOW_HEIGHT, 0.1, 1000);
+        glLoadIdentity();
+        //gluPerspective(60, (double)WINDOW_WIDTH / (double)WINDOW_HEIGHT, 0.1, 2000);
+        //glOrtho(-WINDOW_WIDTH  /2,  WINDOW_WIDTH /2, -WINDOW_HEIGHT /2, WINDOW_HEIGHT /2, 0.0, 2000);
+        glOrtho(0,  WINDOW_WIDTH, 0, WINDOW_HEIGHT, 0.0, 2000);
 
         glMatrixMode(GL_MODELVIEW_MATRIX);
-        glTranslatef(-WINDOW_WIDTH / 2, -WINDOW_HEIGHT / 2, -1000);
-        DrawMatrix(lattice);
-        lattice = runSimulationStep(lattice, replMatrix);
+
+        //glTranslatef(-WINDOW_WIDTH / 2, -WINDOW_HEIGHT / 2, -2*N);
+
+
 
         // Update Screen
         if ((now - lastFrameTime) >= fpsLimit) {
+
+            lattice = runSimulationStep(lattice, replMatrix);
+
+
+            latticeToDraw = ((latticePrevPrev != 0) && (lattice == 0)).select(latticePrevPrev, lattice);
+            latticeToDraw = convolve2DWithWrap(latticeToDraw, avgFilter) / filterSum(0);
+          //  latticeToDraw = ((latticePrev != 0) && (latticeToDraw == 0)).select(latticePrev, latticeToDraw);
+            // Draw
+           
+            //DrawMatrix(latticeToDraw);
+            DrawMatrix(lattice);
+
+            frame++;
             glfwSwapBuffers(window);
+
+            if (frame > 1) {
+                latticePrevPrev = lattice;
+            }
+            latticePrev = latticeToDraw;
 
             lastFrameTime = now;
         }
@@ -478,9 +598,7 @@ void display(GLFWwindow* window) {
 
 int main() {
 
-
     GLFWwindow* window = initWindow(WINDOW_WIDTH, WINDOW_HEIGHT);
-
     if (NULL != window)
     {
         display(window);
