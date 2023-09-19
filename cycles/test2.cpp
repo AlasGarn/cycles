@@ -1,12 +1,15 @@
 #include <iostream>
 #include <vector>
 #include <random>
-#include <eigen3/Eigen/Dense>
-#include <eigen3/unsupported/Eigen/CXX11/Tensor>
+//#include <eigen3/Eigen/Dense>
+//#include <eigen3/unsupported/Eigen/CXX11/Tensor>
+
+#include <Eigen/Dense>
+#include <unsupported/Eigen/CXX11/Tensor>
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
-#include <glm/gtc/matrix_transform.hpp> // glm::translate, glm::rotate, glm::scale, glm::perspective
+//#include <glm/gtc/matrix_transform.hpp> // glm::translate, glm::rotate, glm::scale, glm::perspective
 //#include "helpers.h"
 #include "gpt.h"
 
@@ -21,7 +24,7 @@ double lastFrameTime = 0;   // number of seconds since the last frame
 
 
 
-const int wDead = 37;
+const int wDead = 27;
 const int wRepl = 5;
 const int wBoost = 400;
 const float pDeath = 0.2;
@@ -29,7 +32,7 @@ const float pDeath = 0.2;
 
 
 const int DEBUG = 0;
-const int N = 250;
+const int N = 1000;
 const int nSpecies = 9;
 // if (DEBUG == 1) {
 
