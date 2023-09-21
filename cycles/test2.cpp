@@ -260,7 +260,12 @@ Eigen::Tensor<int, 2> automata2DWithWrap(
                     speciesCounterVec.begin(), 
                     speciesCounterVec.end())
                 );
-            output(i, j) += maxSpeciesId;
+            if (maxSpeciesId != 0) {
+                output(i, j) += maxSpeciesId;
+            }
+            else {
+                output(i, j) += input(i, j);}
+            
             // if (speciesCounterVec[maxSpeciesId] > 5) {
             //     output(i, j) += maxSpeciesId;
             // }
@@ -629,9 +634,9 @@ void display(GLFWwindow* window) {
             lattice = runSimulationStep(lattice, replMatrix);
 
             // try to reduce random zeros
-           // latticeToDraw = ((latticePrevPrev != 0) && (lattice == 0)).select(latticePrevPrev, lattice);
+            latticeToDraw = ((latticePrevPrev != 0) && (lattice == 0)).select(latticePrevPrev, lattice);
            // latticeToDraw = convolve2DWithWrap(lattice, avgFilter) / filterSum(0);
-            latticeToDraw = automata2DWithWrap(lattice, filterMax, nSpecies);
+            latticeToDraw = automata2DWithWrap(latticeToDraw, filterMax, nSpecies);
 
           //  latticeToDraw = ((latticePrev != 0) && (latticeToDraw == 0)).select(latticePrev, latticeToDraw);
             // Draw
