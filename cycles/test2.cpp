@@ -1,12 +1,15 @@
 #include <iostream>
 #include <vector>
 #include <random>
-#include <eigen3/Eigen/Dense>
-#include <eigen3/unsupported/Eigen/CXX11/Tensor>
+//#include <eigen3/Eigen/Dense>
+//#include <eigen3/unsupported/Eigen/CXX11/Tensor>
+
+#include <Eigen/Dense>
+#include <unsupported/Eigen/CXX11/Tensor>
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
-#include <glm/gtc/matrix_transform.hpp> // glm::translate, glm::rotate, glm::scale, glm::perspective
+//#include <glm/gtc/matrix_transform.hpp> // glm::translate, glm::rotate, glm::scale, glm::perspective
 //#include "helpers.h"
 #include "gpt.h"
 
