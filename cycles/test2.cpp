@@ -1,6 +1,8 @@
 #include <iostream>
 #include <vector>
 #include <random>
+#include <ctime>
+
 //#include <eigen3/Eigen/Dense>
 //#include <eigen3/unsupported/Eigen/CXX11/Tensor>
 
@@ -24,15 +26,15 @@ double lastFrameTime = 0;   // number of seconds since the last frame
 
 
 
-const int wDead = 27;
-const int wRepl = 5;
-const int wBoost = 400;
+const int wDead = 11;
+const int wRepl = 1;
+const int wBoost = 100;
 const float pDeath = 0.2;
 
 
 
 const int DEBUG = 0;
-const int N = 1000;
+const int N = 150;
 const int nSpecies = 9;
 // if (DEBUG == 1) {
 
@@ -426,8 +428,8 @@ Eigen::Tensor<int, 2> runSimulationStep(Eigen::Tensor<int, 2> lattice, Eigen::Te
     Eigen::Tensor<bool, 2> tmpSurvivedIntMask = randomMatrix > pDeath;
     Eigen::Tensor<int, 2> survivedIntMask = (randomMatrix > pDeath).cast<int>() * (lattice > 0).cast<int>();
     Eigen::Tensor<int, 2> diedIntMask = (randomMatrix <= pDeath).cast<int>() * (lattice > 0).cast<int>();
-    lattice = lattice * survivedIntMask;
     std::vector<Eigen::Tensor<int, 2>> neighbors = computeNeighbours(lattice);
+    lattice = lattice * survivedIntMask;
 
     if (DEBUG == 1) {
         std::cout << "lattice after dying"  << std::endl;
@@ -443,12 +445,10 @@ Eigen::Tensor<int, 2> runSimulationStep(Eigen::Tensor<int, 2> lattice, Eigen::Te
     replicationIntMask = convolve2DWithWrap(lattice, replMatrix); // empty cells with replicating neighbours
 
     Eigen::Tensor<int, 2> replicationSpots = (replicationIntMask > 0).cast<int>() * (lattice == 0).cast<int>();
-
+    Eigen::Tensor<int, 2> newLattice = fillNewLattice(lattice, neighbors);
 
     Eigen::Tensor<int, 2> new_lattice = (replicationSpots > 0).select(
-        fillNewLattice(lattice, neighbors), 
-        lattice
-        );
+        newLattice, lattice);
     
     for (int i = 0; i < N; i++) {
         for (int j = 0; j < N; j++) {
@@ -532,12 +532,18 @@ void display(GLFWwindow* window) {
     int frame = 0;
 
 
-
-
+    double lastNow = 0;
+    char buffer[64];
     while (!glfwWindowShouldClose(window))
     {
         double now = glfwGetTime();
         double deltaTime = now - lastUpdateTime;
+        if (step % 100 == 0) {
+            double timeForFrame = (now - lastNow) / 100; 
+            lastNow = now;
+            snprintf(buffer, sizeof buffer, "%f", timeForFrame);
+        }
+        glfwSetWindowTitle(window, buffer);
         // Scale to window size
         GLint WINDOW_WIDTH, WINDOW_HEIGHT;
         glfwGetWindowSize(window, &WINDOW_WIDTH, &WINDOW_HEIGHT);
@@ -559,12 +565,12 @@ void display(GLFWwindow* window) {
 
         //glTranslatef(-WINDOW_WIDTH / 2, -WINDOW_HEIGHT / 2, -2*N);
 
+        lattice = runSimulationStep(lattice, replMatrix);
 
 
         // Update Screen
         if ((now - lastFrameTime) >= fpsLimit) {
 
-            lattice = runSimulationStep(lattice, replMatrix);
 
 
             latticeToDraw = ((latticePrevPrev != 0) && (lattice == 0)).select(latticePrevPrev, lattice);
@@ -572,8 +578,8 @@ void display(GLFWwindow* window) {
           //  latticeToDraw = ((latticePrev != 0) && (latticeToDraw == 0)).select(latticePrev, latticeToDraw);
             // Draw
            
-            //DrawMatrix(latticeToDraw);
-            DrawMatrix(lattice);
+            DrawMatrix(latticeToDraw);
+            //DrawMatrix(lattice);
 
             frame++;
             glfwSwapBuffers(window);
@@ -594,7 +600,6 @@ void display(GLFWwindow* window) {
         if (DEBUG == 1) {
             if (step > maxSteps) {break;}
         }
-        
         step++;
     }
 }
