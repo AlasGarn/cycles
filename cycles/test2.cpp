@@ -217,6 +217,71 @@ Eigen::Tensor<int, 2> convolve2DWithWrap(const Eigen::Tensor<int,2>& input, cons
     return output;
 }
 
+Eigen::Tensor<int, 2> automata2DWithWrap(
+    const Eigen::Tensor<int,2>& input, 
+    const Eigen::Tensor<int, 2>& kernel,
+    int nSpecies) {
+    int rows = input.dimensions()[0];
+    int cols = input.dimensions()[1];
+
+    int kRows = kernel.dimensions()[0];
+    int kCols = kernel.dimensions()[1];
+
+    Eigen::Tensor<int, 2> output(rows, cols);
+    output.setZero();
+
+    // Ensure kernel dimensions are odd for simplicity
+    if (kRows % 2 == 0 || kCols % 2 == 0) {
+        std::cerr << "Kernel dimensions should be odd for this implementation." << std::endl;
+        return output;
+    }
+
+    int kHalfRows = kRows / 2;
+    int kHalfCols = kCols / 2;
+    
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            std::vector<int> speciesCounterVec(nSpecies + 1, 0);
+
+            int maxSpeciesId = 0;
+
+            
+            
+            for (int m = -1; m <= 1; ++m) {
+                for (int n = -1; n <= 1; ++n) {
+                    int ii = (i + m + rows) % rows;
+                    int jj = (j + n + cols) % cols;
+                    
+                        speciesCounterVec[input(ii, jj)] ++;
+                    
+                }
+            }
+            maxSpeciesId = std::distance(
+                speciesCounterVec.begin(),
+                std::max_element(
+                    speciesCounterVec.begin(), 
+                    speciesCounterVec.end())
+                );
+            if (maxSpeciesId != 0) {
+                output(i, j) += maxSpeciesId;
+            }
+            else {
+                output(i, j) += input(i, j);}
+            
+            // if (speciesCounterVec[maxSpeciesId] > 5) {
+            //     output(i, j) += maxSpeciesId;
+            // }
+            // else {
+            //     output(i, j) += speciesId;
+            // }
+            
+        }
+    }
+
+    return output;
+}
+
+
 Eigen::Tensor<int, 3> onehotMult(const Eigen::Tensor<int, 2>& mat, int nSpecies, int a) {
     int rows = mat.dimensions()[0];
     int cols = mat.dimensions()[1];
@@ -503,18 +568,20 @@ void display(GLFWwindow* window) {
             {0,1,1,1,1,1,0},
         }
     );
-
-    // int filterSize = 3;
-    // Eigen::Tensor<int, 2> avgFilter(filterSize, filterSize);
-    // avgFilter.setValues(
-    //     {
-    //         {1,1,1},
-    //         {1,5,1},
-    //         {1,1,1},
-    //     }
-    // );
-
     Eigen::Tensor<int, 0> filterSum = avgFilter.sum();
+
+    
+    int filterMaxSize = 3;
+    Eigen::Tensor<int, 2> filterMax(filterMaxSize, filterMaxSize);
+    filterMax.setValues(
+        {
+            {1,1,1},
+            {1,1,1},
+            {1,1,1},
+        }
+    );
+
+    Eigen::Tensor<int, 0> filterMaxSum = filterMax.sum();
 
 
 
@@ -572,14 +639,16 @@ void display(GLFWwindow* window) {
         if ((now - lastFrameTime) >= fpsLimit) {
 
 
-
+            // try to reduce random zeros
             latticeToDraw = ((latticePrevPrev != 0) && (lattice == 0)).select(latticePrevPrev, lattice);
-            latticeToDraw = convolve2DWithWrap(latticeToDraw, avgFilter) / filterSum(0);
+           // latticeToDraw = convolve2DWithWrap(lattice, avgFilter) / filterSum(0);
+            latticeToDraw = automata2DWithWrap(latticeToDraw, filterMax, nSpecies);
+
           //  latticeToDraw = ((latticePrev != 0) && (latticeToDraw == 0)).select(latticePrev, latticeToDraw);
             // Draw
            
             DrawMatrix(latticeToDraw);
-            //DrawMatrix(lattice);
+          //  DrawMatrix(lattice);
 
             frame++;
             glfwSwapBuffers(window);
@@ -615,4 +684,4 @@ int main() {
     glfwTerminate();
     return 0;
 
-}
+}    std::vector<int> speciesCounterVec(nSpecies + 1,0);
