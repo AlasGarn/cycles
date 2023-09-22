@@ -3,25 +3,18 @@
 #include <random>
 #include <ctime>
 
-//#include <eigen3/Eigen/Dense>
-//#include <eigen3/unsupported/Eigen/CXX11/Tensor>
+#include <eigen3/Eigen/Dense>
+#include <eigen3/unsupported/Eigen/CXX11/Tensor>
 
-#include <Eigen/Dense>
-#include <unsupported/Eigen/CXX11/Tensor>
+//#include <Eigen/Dense>
+//#include <unsupported/Eigen/CXX11/Tensor>
 #include <numeric>
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
-//#include <glm/gtc/matrix_transform.hpp> // glm::translate, glm::rotate, glm::scale, glm::perspective
-//#include "helpers.h"
 #include "gpt.h"
 #include <algorithm>
 
-/**
- * Argsort(currently support ascending sort)
- * @tparam T array element type
- * @param array input array
- * @return indices w.r.t sorted array
- */
+
 std::vector<int> argsort(const std::vector<int>& array) {
     std::vector<int> indices(array.size());
     std::iota(indices.begin(), indices.end(), 0);
@@ -64,9 +57,8 @@ Eigen::Tensor<int, 2> replMatrix(3, 3);
 
 //Eigen::TensorFixedSize<int, Eigen::Sizes<N, N, nSpecies + 1>> replMatrix;
 
-
-Eigen::TensorFixedSize<int, Eigen::Sizes<N, N, nSpecies + 1>> cumClaims;
 Eigen::TensorFixedSize<int, Eigen::Sizes<N, N, nSpecies + 1>> claims;
+Eigen::TensorFixedSize<int, Eigen::Sizes<N, N, nSpecies + 1>> cumClaims;
 Eigen::TensorFixedSize<float, Eigen::Sizes<N, N, nSpecies + 1>> cumProb;
 Eigen::TensorFixedSize<int, Eigen::Sizes<N, N>> lattice;
 
