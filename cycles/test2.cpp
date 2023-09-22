@@ -8,13 +8,31 @@
 
 #include <Eigen/Dense>
 #include <unsupported/Eigen/CXX11/Tensor>
-
+#include <numeric>
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 //#include <glm/gtc/matrix_transform.hpp> // glm::translate, glm::rotate, glm::scale, glm::perspective
 //#include "helpers.h"
 #include "gpt.h"
+#include <algorithm>
 
+/**
+ * Argsort(currently support ascending sort)
+ * @tparam T array element type
+ * @param array input array
+ * @return indices w.r.t sorted array
+ */
+std::vector<int> argsort(const std::vector<int>& array) {
+    std::vector<int> indices(array.size());
+    std::iota(indices.begin(), indices.end(), 0);
+    std::sort(indices.begin(), indices.end(),
+        [&array](int left, int right) -> bool {
+            // sort indices according to corresponding array element
+            return array[left] < array[right];
+        });
+
+    return indices;
+}
 // on linux compile with: 
 // /usr/bin/gcc -fdiagnostics-color=always -g /home/k/cycles/cycles/test2.cpp -o /home/k/cycles/cycles/test2 --include-directory=/usr/include/eigen3  -lGL -lGLU -lglfw  -lm -lstdc++
 
@@ -29,13 +47,30 @@ double lastFrameTime = 0;   // number of seconds since the last frame
 const int wDead = 11;
 const int wRepl = 1;
 const int wBoost = 100;
-const float pDeath = 0.2;
-
-
+const float pDeath = 0.15;
 
 const int DEBUG = 0;
 const int N = 150;
 const int nSpecies = 9;
+
+
+const std::vector<std::vector<int>> boostLogic = {
+    {{4,5,1,3}}, // up
+    {{4,6,0,2}}, // left
+    {{6,7,1,3}}, // down
+    {{5,7,0,2}}  // right
+};
+Eigen::Tensor<int, 2> replMatrix(3, 3);
+
+//Eigen::TensorFixedSize<int, Eigen::Sizes<N, N, nSpecies + 1>> replMatrix;
+
+
+Eigen::TensorFixedSize<int, Eigen::Sizes<N, N, nSpecies + 1>> cumClaims;
+Eigen::TensorFixedSize<int, Eigen::Sizes<N, N, nSpecies + 1>> claims;
+Eigen::TensorFixedSize<float, Eigen::Sizes<N, N, nSpecies + 1>> cumProb;
+Eigen::TensorFixedSize<int, Eigen::Sizes<N, N>> lattice;
+
+
 // if (DEBUG == 1) {
 
 // } else {
@@ -64,7 +99,7 @@ GLFWwindow* initWindow(const int resX, const int resY)
         fprintf(stderr, "Failed to initialize GLFW\n");
         return NULL;
     }
-    glfwWindowHint(GLFW_SAMPLES, 4); // 1x antialiasing
+   // glfwWindowHint(GLFW_SAMPLES, 4); // 1x antialiasing
 
     // Open a window and create its OpenGL context
     GLFWwindow* window = glfwCreateWindow(resX, resY, "TEST", NULL, NULL);
@@ -75,46 +110,53 @@ GLFWwindow* initWindow(const int resX, const int resY)
         glfwTerminate();
         return NULL;
     }
+  //  glAccum(GL_MULT, 0.90);
 
     glfwMakeContextCurrent(window);
     glfwSetKeyCallback(window, controls);
-
+ /*   glAccum(GL_MULT, 0.90);
+    glAccum(GL_ACCUM, 0.10);
+    glAccum(GL_RETURN, 1.0);
+    */
+    glFlush();
     // Get info of GPU and supported OpenGL version
     printf("Renderer: %s\n", glGetString(GL_RENDERER));
     printf("OpenGL version supported %s\n", glGetString(GL_VERSION));
 
-    glEnable(GL_DEPTH_TEST); // Depth Testing
-   // glEnable(GL_LIGHTING);
-   // glEnable(GL_LIGHT0);
-    glShadeModel(GL_SMOOTH);
-    glDepthFunc(GL_LEQUAL);
-    glDisable(GL_CULL_FACE);
-    glCullFace(GL_BACK);
+    glEnable(GL_LINE_SMOOTH);
+    glEnable(GL_BLEND);
 
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_DST_ALPHA);
+    glHint(GL_LINE_SMOOTH_HINT, GL_DONT_CARE);
+    glLineWidth(1.5);
+    //glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+//  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+//  glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+   // glDisable(GL_CULL_FACE);
+  //  glCullFace(GL_BACK);
+     //   glBlendFunc(GL_ONE, GL_ZERO);
+  //  
     return window;
 }
 void DrawMatrix(Eigen::Tensor<int, 2>& lattice) {
-    int N = lattice.dimensions()[0];
     const float cellWidth = static_cast<float>(WINDOW_WIDTH) / N;
     const float cellHeight = static_cast<float>(WINDOW_HEIGHT) / N;
-
-    glClear(GL_COLOR_BUFFER_BIT);
 
     for (int i = 1; i < N-1; ++i) {
         for (int j = 1; j < N-1; ++j) {
             int species = lattice(i, j);
             // Set color based on species
             switch (species) {
-                case 0: glColor4f(0.1f, 0.1f, 0.1f, 0.1f); break; // Dead
-                case 1: glColor4f(0.0f, 0.0f, 0.5f, 0.0f); break;
-                case 2: glColor4f(0.0f, 0.00196078431372549f, 1.0f, 0.125f); break;
-                case 3: glColor4f(0.0f, 0.503921568627451f, 1.0f, 0.25f); break;
-                case 4: glColor4f(0.08538899430740036f, 1.0f, 0.8823529411764706f, 0.375f); break;
-                case 5: glColor4f(0.4901960784313725f, 1.0f, 0.4775458570524984f, 0.5f); break;
-                case 6: glColor4f(0.8950031625553446f, 1.0f, 0.07273877292852626f, 0.625f); break;
-                case 7: glColor4f(1.0f, 0.5816993464052289f, 0.0f, 0.75f); break;
-                case 8: glColor4f(1.0f, 0.11692084241103862f, 0.0f, 0.875f); break;
-                case 9: glColor4f(0.5f, 0.0f, 0.0f, 1.0f); break;
+                case 0: glColor4f(0.0f, 0.0f, 0.0f, 0.001f); break; // Dead
+                case 1: glColor4f(0.0f, 0.0f, 0.5f, 0.2f); break;
+                case 2: glColor4f(0.0f, 0.00196078431372549f, 1.0f, 0.3f); break;
+                case 3: glColor4f(0.0f, 0.503921568627451f, 1.0f, 0.4f); break;
+                case 4: glColor4f(0.08538899430740036f, 1.0f, 0.8823529411764706f, 0.5f); break;
+                case 5: glColor4f(0.4901960784313725f, 1.0f, 0.4775458570524984f, 0.5); break;
+                case 6: glColor4f(0.8950031625553446f, 1.0f, 0.07273877292852626f, 0.5); break;
+                case 7: glColor4f(1.0f, 0.5816993464052289f, 0.0f, 0.5); break;
+                case 8: glColor4f(1.0f, 0.11692084241103862f, 0.0f, 0.5); break;
+                case 9: glColor4f(0.5f, 0.0f, 0.0f, 0.5f); break;
 
                 default: glColor4f(1.0f, 1.0f, 1.0f, 1.0f);      // Others
             }
@@ -159,21 +201,21 @@ void DrawMatrix(Eigen::Tensor<int, 2>& lattice) {
             glEnd();
         }
     }
+
 }
 
 
 Eigen::Tensor<int, 2> roll(const Eigen::Tensor<int, 2>& mat, int shiftX, int shiftY) {
-    int rows = mat.dimensions()[0];
-    int cols = mat.dimensions()[1];
-    Eigen::Tensor<int, 2> rolled(rows, cols);
 
-    for (int i = 0; i < rows; ++i) {
-        for (int j = 0; j < cols; ++j) {
-            int newX = (i + shiftX) % rows;
-            int newY = (j + shiftY) % cols;
+    Eigen::Tensor<int, 2> rolled(N, N);
 
-            if (newX < 0) newX += rows;
-            if (newY < 0) newY += cols;
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int newX = (i + shiftX) % N;
+            int newY = (j + shiftY) % N;
+
+            if (newX < 0) newX += N;
+            if (newY < 0) newY += N;
 
             rolled(newX, newY) = mat(i, j);
         }
@@ -182,13 +224,12 @@ Eigen::Tensor<int, 2> roll(const Eigen::Tensor<int, 2>& mat, int shiftX, int shi
 }
 
 Eigen::Tensor<int, 2> convolve2DWithWrap(const Eigen::Tensor<int,2>& input, const Eigen::Tensor<int, 2>& kernel) {
-    int rows = input.dimensions()[0];
-    int cols = input.dimensions()[1];
+
 
     int kRows = kernel.dimensions()[0];
     int kCols = kernel.dimensions()[1];
 
-    Eigen::Tensor<int, 2> output(rows, cols);
+    Eigen::Tensor<int, 2> output(N, N);
     output.setZero();
 
     // Ensure kernel dimensions are odd for simplicity
@@ -201,12 +242,12 @@ Eigen::Tensor<int, 2> convolve2DWithWrap(const Eigen::Tensor<int,2>& input, cons
     int kHalfRows = kRows / 2;
     int kHalfCols = kCols / 2;
 
-    for (int i = 0; i < rows; ++i) {
-        for (int j = 0; j < cols; ++j) {
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
             for (int m = -kHalfRows; m <= kHalfRows; ++m) {
                 for (int n = -kHalfCols; n <= kHalfCols; ++n) {
-                    int ii = (i + m + rows) % rows;
-                    int jj = (j + n + cols) % cols;
+                    int ii = (i + m + N) % N;
+                    int jj = (j + n + N) % N;
 
                     output(i, j) += input(ii, jj) * kernel(m + kHalfRows, n + kHalfCols);
                 }
@@ -216,18 +257,12 @@ Eigen::Tensor<int, 2> convolve2DWithWrap(const Eigen::Tensor<int,2>& input, cons
 
     return output;
 }
+Eigen::Tensor<int, 2> automata2DWithWrap(const Eigen::Tensor<int,2>& input, int M) {
 
-Eigen::Tensor<int, 2> automata2DWithWrap(
-    const Eigen::Tensor<int,2>& input, 
-    const Eigen::Tensor<int, 2>& kernel,
-    int nSpecies) {
-    int rows = input.dimensions()[0];
-    int cols = input.dimensions()[1];
+    int kRows = M;
+    int kCols = M;
 
-    int kRows = kernel.dimensions()[0];
-    int kCols = kernel.dimensions()[1];
-
-    Eigen::Tensor<int, 2> output(rows, cols);
+    Eigen::Tensor<int, 2> output(N, N);
     output.setZero();
 
     // Ensure kernel dimensions are odd for simplicity
@@ -239,58 +274,57 @@ Eigen::Tensor<int, 2> automata2DWithWrap(
     int kHalfRows = kRows / 2;
     int kHalfCols = kCols / 2;
     
-    for (int i = 0; i < rows; ++i) {
-        for (int j = 0; j < cols; ++j) {
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
             std::vector<int> speciesCounterVec(nSpecies + 1, 0);
 
-            int maxSpeciesId = 0;
+            for (int m = -kHalfRows; m <= kHalfRows; ++m) {
+                for (int n = -kHalfCols; n <= kHalfCols; ++n) {
+                    int ii = (i + m + N) % N;
+                    int jj = (j + n + N) % N;
 
-            
-            
-            for (int m = -1; m <= 1; ++m) {
-                for (int n = -1; n <= 1; ++n) {
-                    int ii = (i + m + rows) % rows;
-                    int jj = (j + n + cols) % cols;
-                    
-                        speciesCounterVec[input(ii, jj)] ++;
-                    
+                    speciesCounterVec[input(ii, jj)]++;
                 }
             }
+            std::vector<int> sortedSpeciesIds = argsort(speciesCounterVec);
+            int sp = 0;
+            for (int v = sortedSpeciesIds.size()-1; v >= 0; v--) {
+                sp = sortedSpeciesIds[v];
+                if (speciesCounterVec[sp] != 0) {
+                    break;
+                }
+            }
+
+            output(i, j) = sp;
+
+
+            /*
             maxSpeciesId = std::distance(
                 speciesCounterVec.begin(),
                 std::max_element(
-                    speciesCounterVec.begin(), 
+                    speciesCounterVec.begin(),
                     speciesCounterVec.end())
-                );
-            if (maxSpeciesId != 0) {
-                output(i, j) += maxSpeciesId;
+            );
+
+            if (maxSpeciesId != -1) {
+                output(i, j) = maxSpeciesId;
             }
             else {
-                output(i, j) += input(i, j);}
-            
-            // if (speciesCounterVec[maxSpeciesId] > 5) {
-            //     output(i, j) += maxSpeciesId;
-            // }
-            // else {
-            //     output(i, j) += speciesId;
-            // }
+                output(i, j) = input(i, j);}
+            */
             
         }
     }
 
     return output;
 }
-
-
-Eigen::Tensor<int, 3> onehotMult(const Eigen::Tensor<int, 2>& mat, int nSpecies, int a) {
-    int rows = mat.dimensions()[0];
-    int cols = mat.dimensions()[1];
-
+Eigen::Tensor<int, 3> onehotMult(const Eigen::Tensor<int, 2>& mat, int a) {
+ 
     // Create a Tensor of zeros initially
-    Eigen::Tensor<int, 3> onehotTensor(rows, cols, nSpecies + 1);
+    Eigen::Tensor<int, 3> onehotTensor(N, N, nSpecies + 1);
 
-    for (int i = 0; i < rows; ++i) {
-        for (int j = 0; j < cols; ++j) {
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
             int speciesIdInLattice = mat(i, j);
             for (int speciesId = 0; speciesId < nSpecies + 1; ++speciesId) {
                 onehotTensor(i, j, speciesId) = 0;
@@ -303,16 +337,12 @@ Eigen::Tensor<int, 3> onehotMult(const Eigen::Tensor<int, 2>& mat, int nSpecies,
 
     return onehotTensor;
 }
-
-Eigen::Tensor<int, 2> initLattice(const Eigen::Tensor<int, 2>& lat, int nSpecies) {
+Eigen::Tensor<int, 2> initLattice(const Eigen::Tensor<int, 2>& lat) {
     // Initial random assignment
 
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> speciesDis(1, nSpecies);
-
-
-    int N = lat.dimensions()[0];
 
     Eigen::Tensor<int, 2> initDistribution(N, N);
 
@@ -333,7 +363,6 @@ Eigen::Tensor<int, 2> initLattice(const Eigen::Tensor<int, 2>& lat, int nSpecies
     return initDistribution;
 }
 
-
 std::vector<Eigen::Tensor<int, 2>> computeNeighbours(const Eigen::Tensor<int, 2>& lattice) {
     Eigen::Tensor<int, 2> up = roll(lattice, 1, 0);
     Eigen::Tensor<int, 2> down = roll(lattice, -1, 0);
@@ -351,29 +380,19 @@ std::vector<Eigen::Tensor<int, 2>> computeNeighbours(const Eigen::Tensor<int, 2>
 
 
 Eigen::Tensor<int, 2> fillNewLattice(const Eigen::Tensor<int, 2>& lattice, const std::vector<Eigen::Tensor<int, 2>>& neighborsMatrix) {
-    const std::vector<std::vector<int>> boostLogic = {
-        {{4,5,1,3}}, // up
-        {{4,6,0,2}}, // left
-        {{6,7,1,3}}, // down
-        {{5,7,0,2}}  // right
-    };
-    int N = lattice.dimensions()[0];
-    Eigen::Tensor<int, 3> cumClaims(N, N, nSpecies + 1);
+
+   // const int N = lattice.dimensions()[0];
+   // Eigen::Tensor<int, 3> cumClaims();
     cumClaims.setZero();
-    Eigen::Tensor<int, 3> claims(N, N, nSpecies + 1);
     claims.setZero();
     
     for (int replicationDirectionId = 0; replicationDirectionId < 4; ++replicationDirectionId) {
         Eigen::Tensor<int, 2> replicatorSpecies = neighborsMatrix[replicationDirectionId];
 
 
-        claims += onehotMult(replicatorSpecies, nSpecies, wRepl);
+        claims += onehotMult(replicatorSpecies, wRepl);
         if (DEBUG == 1) {
             std::cout << "claims after replication" << std::endl << claims << std::endl;
-        }
-
-
-        if (DEBUG == 1) {
             std::cout << "replicator species " << std::endl << replicatorSpecies << std::endl;
             std::cout << "claims" << std::endl << claims << std::endl;
         }
@@ -394,10 +413,9 @@ Eigen::Tensor<int, 2> fillNewLattice(const Eigen::Tensor<int, 2>& lattice, const
             Eigen::Tensor<int, 2> boosterSpecies = neighborsMatrix[boostDirectionId]; // potential boosters
             Eigen::Tensor<int, 2> whereAreCorrectBoosters = (boosterSpecies == boosterSpeciesRequired).cast<int>();
             Eigen::Tensor<int, 2> correctBoosterSpecies = replicatorSpecies * whereAreCorrectBoosters;
-            claims += onehotMult(correctBoosterSpecies, nSpecies, wBoost);
+            claims += onehotMult(correctBoosterSpecies, wBoost);
             if (DEBUG == 1) {
                 std::cout << "BoosterSpecies " << std::endl << boosterSpecies << std::endl;
-
                 std::cout << "correctBoosterSpecies" << std::endl << correctBoosterSpecies << std::endl;
                 std::cout << "claims" << std::endl << claims << std::endl;
             }
@@ -435,8 +453,8 @@ Eigen::Tensor<int, 2> fillNewLattice(const Eigen::Tensor<int, 2>& lattice, const
       std::cout << "claimsSumBroadcast" << claimsSumBroadcast.dimensions() << std::endl;
           std::cout << claimsSumBroadcast << std::endl;
     */
-
-    Eigen::Tensor<float, 3> cumProb(N, N, nSpecies+1);
+    cumProb.setZero();
+    
     for (int i = 0; i < N; i++) {
         for (int j = 0; j < N; j++) {
             for (int k = 0; k < nSpecies + 1; k++) {
@@ -478,7 +496,7 @@ Eigen::Tensor<int, 2> fillNewLattice(const Eigen::Tensor<int, 2>& lattice, const
 }
 
 
-Eigen::Tensor<int, 2> runSimulationStep(Eigen::Tensor<int, 2> lattice, Eigen::Tensor<int, 2> replMatrix) {
+Eigen::Tensor<int, 2> runSimulationStep(Eigen::Tensor<int, 2> lattice) {
 
     if (DEBUG == 1) {
         std::cout << "lattice before step" << std::endl;
@@ -525,8 +543,6 @@ Eigen::Tensor<int, 2> runSimulationStep(Eigen::Tensor<int, 2> lattice, Eigen::Te
 
     if (DEBUG == 1) {
 
- 
-
         std::cout << "greater than death" << std::endl;
         std::cout << randomMatrix << std::endl << ">" << pDeath << std::endl;
         std::cout <<  tmpSurvivedIntMask << std::endl;
@@ -551,12 +567,10 @@ Eigen::Tensor<int, 2> runSimulationStep(Eigen::Tensor<int, 2> lattice, Eigen::Te
 }
 
 void display(GLFWwindow* window) {
-    Eigen::Tensor<int, 2> replMatrix(3, 3);
     replMatrix.setValues({ {0, 1, 0}, {1, 0, 1}, {0, 1, 0} });
 
-    int filterSize = 7;
-    Eigen::Tensor<int, 2> avgFilter(filterSize, filterSize);
-    avgFilter.setConstant(1);
+    const int filterSize = 7;
+    Eigen::TensorFixedSize<int, Eigen::Sizes<filterSize, filterSize>> avgFilter;
     avgFilter.setValues(
         {
             {0,1,1,1,1,1,0},
@@ -568,29 +582,26 @@ void display(GLFWwindow* window) {
             {0,1,1,1,1,1,0},
         }
     );
+   // avgFilter.setConstant(1);
+
     Eigen::Tensor<int, 0> filterSum = avgFilter.sum();
 
     
-    int filterMaxSize = 3;
+    int filterMaxSize = 5;
     Eigen::Tensor<int, 2> filterMax(filterMaxSize, filterMaxSize);
-    filterMax.setValues(
-        {
-            {1,1,1},
-            {1,1,1},
-            {1,1,1},
-        }
-    );
+    filterMax.setConstant(1);
+    
 
     Eigen::Tensor<int, 0> filterMaxSum = filterMax.sum();
 
 
 
-    Eigen::Tensor<int, 2> lattice(N, N);
+
     Eigen::Tensor<int, 2> latticePrev(N, N);
     Eigen::Tensor<int, 2> latticePrevPrev(N, N);
-
+    latticePrevPrev.setZero();
     Eigen::Tensor<int, 2> latticeToDraw(N, N);
-    lattice = initLattice(lattice, nSpecies);
+    lattice = initLattice(lattice);
 
 
 
@@ -606,7 +617,7 @@ void display(GLFWwindow* window) {
         double now = glfwGetTime();
         double deltaTime = now - lastUpdateTime;
         if (step % 100 == 0) {
-            double timeForFrame = (now - lastNow) / 100; 
+            double timeForFrame = 1 / ((now - lastNow) / 100); 
             lastNow = now;
             snprintf(buffer, sizeof buffer, "%f", timeForFrame);
         }
@@ -617,41 +628,36 @@ void display(GLFWwindow* window) {
         glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
 
         // Draw stuff
-        glClearColor(0.3, 0.3, 0.3, 1.0);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+ 
 
-        //glMatrixMode(GL_PROJECTION_MATRIX);
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
-        glLoadIdentity();
-        //gluPerspective(60, (double)WINDOW_WIDTH / (double)WINDOW_HEIGHT, 0.1, 2000);
-        //glOrtho(-WINDOW_WIDTH  /2,  WINDOW_WIDTH /2, -WINDOW_HEIGHT /2, WINDOW_HEIGHT /2, 0.0, 2000);
+
         glOrtho(0,  WINDOW_WIDTH, 0, WINDOW_HEIGHT, 0.0, 2000);
 
         glMatrixMode(GL_MODELVIEW_MATRIX);
 
-        //glTranslatef(-WINDOW_WIDTH / 2, -WINDOW_HEIGHT / 2, -2*N);
+        lattice = runSimulationStep(lattice);
+ 
+        latticeToDraw = lattice;
+        
+        // hacks to reduce random zeros
+       // latticeToDraw = ((latticePrevPrev != 0) && (lattice == 0)).select(latticePrevPrev, lattice);
+        latticeToDraw = automata2DWithWrap(latticeToDraw, filterMaxSize);
+        // latticeToDraw = convolve2DWithWrap(latticeToDraw, avgFilter) / filterSum(0);
+       //  latticeToDraw = ((latticePrev != 0) && (latticeToDraw == 0)).select(latticePrev, latticeToDraw);
 
-        lattice = runSimulationStep(lattice, replMatrix);
 
 
-        // Update Screen
+        DrawMatrix(latticeToDraw);
+        glfwSwapBuffers(window);
+
+
+        // Update Screen at 60 fps
         if ((now - lastFrameTime) >= fpsLimit) {
 
-
-            // try to reduce random zeros
-            latticeToDraw = ((latticePrevPrev != 0) && (lattice == 0)).select(latticePrevPrev, lattice);
-           // latticeToDraw = convolve2DWithWrap(lattice, avgFilter) / filterSum(0);
-            latticeToDraw = automata2DWithWrap(latticeToDraw, filterMax, nSpecies);
-
-          //  latticeToDraw = ((latticePrev != 0) && (latticeToDraw == 0)).select(latticePrev, latticeToDraw);
-            // Draw
-           
-            DrawMatrix(latticeToDraw);
-          //  DrawMatrix(lattice);
-
             frame++;
-            glfwSwapBuffers(window);
+//            glfwSwapBuffers(window);
 
             if (frame > 1) {
                 latticePrevPrev = lattice;
